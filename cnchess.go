@@ -10,16 +10,21 @@ import (
 
 var Map [][]int
 var maxDepth int
-var count int64
+var count int
 
-// fromto表示移动棋子的起始和目标位置，eat表示目标位置是否吃子
-type AiMove struct {
-	fromto []int
-	score  int
+type Move struct {
+	fromX int
+	fromY int
+	toX   int
+	toY   int
+	score int
+	key   int
+	eat   int
 }
 
 var scores []int
-var aiMove AiMove
+var aiMove Move
+var cache = make(map[string]int)
 
 func abs(n int) int {
 	if n < 0 {
@@ -132,7 +137,7 @@ var Ma = [10][9]int{
 	{92, 94, 98, 95, 98, 95, 98, 94, 92},
 	{90, 92, 95, 95, 92, 95, 95, 92, 90},
 	{85, 90, 92, 93, 78, 93, 92, 90, 85},
-	{88, 50, 90, 88, 90, 88, 90, 50, 88},
+	{88, 88, 90, 88, 90, 88, 90, 88, 88},
 }
 
 var Ju = [10][9]int{
@@ -148,16 +153,6 @@ var Ju = [10][9]int{
 	{194, 206, 204, 212, 200, 212, 204, 206, 194},
 }
 
-type Move struct {
-	fromX int
-	fromY int
-	toX   int
-	toY   int
-	score int
-	key   int
-	eat   int
-}
-
 func revMap() [][]int {
 	var arr [][]int
 	for i := len(Map) - 1; i >= 0; i-- {
@@ -168,14 +163,6 @@ func revMap() [][]int {
 
 func generateMoves(player int) []Move {
 	var moves []Move
-
-	tempMap := Map
-	if player < 0 {
-		Map = revMap()
-	}
-	// str, _ := json.Marshal(Map)
-	// showLog("Map", string(str))
-
 	// 遍历棋盘上的每个位置
 	for j := 0; j < 10; j++ {
 		for i := 0; i < 9; i++ {
@@ -205,29 +192,22 @@ func generateMoves(player int) []Move {
 		}
 	}
 
-	if player < 0 {
-		Map = tempMap
-		for k, m := range moves {
-			// showLog("move--", m.fromX, m.fromY, m.toX, m.toY, m.key)
-			if m.fromY <= 9 && m.fromY >= 0 && m.toY >= 0 && m.toY <= 9 {
-				moves[k].fromY = 9 - m.fromY
-				moves[k].toY = 9 - m.toY
-			}
-		}
-	}
-
-	// var moves2 []Move
-	// for _, v := range moves {
-	// 	if v.key == Map[v.fromY][v.fromX] {
-	// 		moves = append(moves2, v)
-	// 	}
+	// if player < 0 {
+	// 	Map = tempMap
+	// 	// for k, m := range moves {
+	// 	// 	// showLog("move--", m.fromX, m.fromY, m.toX, m.toY, m.key)
+	// 	// 	if m.fromY <= 9 && m.fromY >= 0 && m.toY >= 0 && m.toY <= 9 {
+	// 	// 		moves[k].fromY = 9 - m.fromY
+	// 	// 		moves[k].toY = 9 - m.toY
+	// 	// 	}
+	// 	// }
 	// }
 
 	return moves
 }
 
 func checkxy(x, y int) bool {
-	return x >= 0 && x < len(Map[0]) && y >= 0 && y < len(Map)
+	return x >= 0 && x < 9 && y >= 0 && y < 10
 }
 
 // 生成兵的移动
@@ -243,20 +223,20 @@ func generateBingMoves(x, y, player int) []Move {
 	}
 
 	for _, dir := range directions {
-		dx, dy := dir[0], dir[1]
+		x2, y2 := x+dir[0], y+dir[1]
 
 		// 判断目标位置是否在棋盘内
-		if checkxy(x+dx, y+dy) {
+		if checkxy(x2, y2) {
 			// 判断目标位置是否为空或者是敌方棋子
-			if Map[y+dy][x+dx]*player <= 0 {
+			if Map[y2][x2]*player <= 0 {
 				moves = append(moves, Move{
 					fromX: x,
 					fromY: y,
-					toX:   x + dx,
-					toY:   y + dy,
+					toX:   x2,
+					toY:   y2,
 					key:   Map[y][x],
-					score: Bing[y+dy][x+dx],
-					eat:   Map[y+dy][x+dx],
+					score: Bing[y2][x2],
+					eat:   Map[y2][x2],
 				})
 			}
 		}
@@ -276,19 +256,25 @@ func generatePaoMoves(x, y, player int) []Move {
 		dx, dy := dir[0], dir[1]
 		capture := false
 
-		for i := 1; x+i*dx >= 0 && x+i*dx < 9 && y+i*dy >= 0 && y+i*dy < 10; i++ {
-			if Map[y+i*dy][x+i*dx] != 0 {
+		for i := 1; ; i++ {
+			newX, newY := x+i*dx, y+i*dy
+			if !checkxy(newX, newY) {
+				break
+			}
+
+			if Map[newY][newX] != 0 {
 				if !capture {
 					capture = true
 				} else {
-					if Map[y+i*dy][x+i*dx]*player < 0 {
+					if Map[newY][newX]*player < 0 {
 						moves = append(moves, Move{
 							fromX: x,
 							fromY: y,
-							toX:   x + i*dx,
-							toY:   y + i*dy,
+							toX:   newX,
+							toY:   newY,
 							key:   Map[y][x],
-							score: Pao[y+i*dy][x+i*dx],
+							score: Pao[newY][newX],
+							eat:   Map[newY][newX],
 						})
 					}
 					break
@@ -298,10 +284,10 @@ func generatePaoMoves(x, y, player int) []Move {
 					moves = append(moves, Move{
 						fromX: x,
 						fromY: y,
-						toX:   x + i*dx,
-						toY:   y + i*dy,
+						toX:   newX,
+						toY:   newY,
 						key:   Map[y][x],
-						score: Pao[y+i*dy][x+i*dx],
+						score: Pao[newY][newX],
 					})
 				}
 			}
@@ -321,27 +307,24 @@ func generateJuMoves(x, y, player int) []Move {
 	for _, dir := range directions {
 		dx, dy := dir[0], dir[1]
 
-		for i := 1; x+i*dx >= 0 && x+i*dx < 9 && y+i*dy >= 0 && y+i*dy < 10; i++ {
-			if Map[y+i*dy][x+i*dx] == 0 {
+		for i := 1; ; i++ {
+			nx, ny := x+i*dx, y+i*dy
+			if !checkxy(nx, ny) {
+				break
+			}
+
+			if Map[ny][nx]*player <= 0 {
 				moves = append(moves, Move{
 					fromX: x,
 					fromY: y,
-					toX:   x + i*dx,
-					toY:   y + i*dy,
+					toX:   nx,
+					toY:   ny,
 					key:   Map[y][x],
-					score: Ju[y+i*dy][x+i*dx],
+					score: Ju[ny][nx],
+					eat:   Map[ny][nx],
 				})
-			} else {
-				if Map[y+i*dy][x+i*dx]*player < 0 {
-					moves = append(moves, Move{
-						fromX: x,
-						fromY: y,
-						toX:   x + i*dx,
-						toY:   y + i*dy,
-						key:   Map[y][x],
-						score: Ju[y+i*dy][x+i*dx],
-					})
-				}
+			}
+			if Map[ny][nx]*player != 0 {
 				break
 			}
 		}
@@ -350,7 +333,6 @@ func generateJuMoves(x, y, player int) []Move {
 	return moves
 }
 
-// 生成马的移动
 func generateMaMoves(x, y, player int) []Move {
 	moves := []Move{}
 
@@ -359,31 +341,22 @@ func generateMaMoves(x, y, player int) []Move {
 
 	for _, dir := range directions {
 		dx, dy := dir[0], dir[1]
+		newX, newY := x+dx, y+dy
+		legX, legY := x+dx/2, y+dy/2
 
 		// 判断马腿位置是否为空
-		if x+dx >= 0 && x+dx < 9 && y+dy >= 0 && y+dy < 10 && Map[y+dy/2][x+dx/2] == 0 {
-			// 判断目标位置是否为空
-			if Map[y+dy][x+dx] == 0 {
+		if checkxy(legX, legY) && Map[legY][legX] == 0 {
+			// 判断目标位置是否为空或者为敌方棋子
+			if checkxy(newX, newY) && Map[newY][newX]*player <= 0 {
 				moves = append(moves, Move{
 					fromX: x,
 					fromY: y,
-					toX:   x + dx,
-					toY:   y + dy,
+					toX:   newX,
+					toY:   newY,
 					key:   Map[y][x],
-					score: Ma[y+dy][x+dx],
+					score: Ma[newY][newX],
+					eat:   Map[newY][newX],
 				})
-			} else {
-				// 判断目标位置是否为敌方棋子
-				if Map[y+dy][x+dx]*player < 0 {
-					moves = append(moves, Move{
-						fromX: x,
-						fromY: y,
-						toX:   x + dx,
-						toY:   y + dy,
-						key:   Map[y][x],
-						score: Ma[y+dy][x+dx],
-					})
-				}
 			}
 		}
 	}
@@ -391,7 +364,6 @@ func generateMaMoves(x, y, player int) []Move {
 	return moves
 }
 
-// 生成象的移动
 func generateXiangMoves(x, y, player int) []Move {
 	moves := []Move{}
 
@@ -401,28 +373,24 @@ func generateXiangMoves(x, y, player int) []Move {
 	for _, dir := range directions {
 		dx, dy := dir[0], dir[1]
 
-		// 判断象眼位置是否为空
-		if x+dx >= 0 && x+dx < 9 && y+dy >= 0 && y+dy < 10 && Map[y+dy/2][x+dx/2] == 0 {
-			// 判断目标位置是否为空
-			if Map[y+dy][x+dx] == 0 {
-				moves = append(moves, Move{
-					fromX: x,
-					fromY: y,
-					toX:   x + dx,
-					toY:   y + dy,
-					key:   Map[y][x],
-					score: Xiang[y+dy][x+dx],
-				})
-			} else {
-				// 判断目标位置是否为敌方棋子
-				if Map[y+dy][x+dx]*player < 0 {
+		// 计算象眼和目标位置
+		eyeX, eyeY := x+dx/2, y+dy/2
+		targetX, targetY := x+dx, y+dy
+
+		// 检查象眼和目标位置是否在边界内
+		if checkxy(eyeX, eyeY) && checkxy(targetX, targetY) && targetY > 4 {
+			// 判断象眼位置是否为空
+			if Map[eyeY][eyeX] == 0 {
+				// 判断目标位置是否为空或为敌方棋子
+				if Map[targetY][targetX]*player <= 0 {
 					moves = append(moves, Move{
 						fromX: x,
 						fromY: y,
-						toX:   x + dx,
-						toY:   y + dy,
+						toX:   targetX,
+						toY:   targetY,
 						key:   Map[y][x],
-						score: Xiang[y+dy][x+dx],
+						score: Xiang[targetY][targetX],
+						eat:   Map[targetY][targetX],
 					})
 				}
 			}
@@ -440,32 +408,21 @@ func generateShiMoves(x, y, player int) []Move {
 	directions := [][]int{{-1, -1}, {-1, 1}, {1, -1}, {1, 1}}
 
 	for _, dir := range directions {
-		dx, dy := dir[0], dir[1]
+		x2, y2 := x+dir[0], y+dir[1]
 
 		// 判断目标位置是否在九宫格内
-		if x+dx >= 3 && x+dx <= 5 && y+dy >= 7 && y+dy <= 9 {
-			// 判断目标位置是否为空
-			if Map[y+dy][x+dx] == 0 {
+		if x2 >= 3 && x2 <= 5 && y2 >= 7 && y2 <= 9 {
+			// 判断目标位置是否为空或敌方棋子
+			if Map[y2][x2]*player <= 0 {
 				moves = append(moves, Move{
 					fromX: x,
 					fromY: y,
-					toX:   x + dx,
-					toY:   y + dy,
+					toX:   x2,
+					toY:   y2,
 					key:   Map[y][x],
-					score: Shi[y+dy][x+dx],
+					score: Shi[y2][x2],
+					eat:   Map[y2][x2],
 				})
-			} else {
-				// 判断目标位置是否为敌方棋子
-				if Map[y+dy][x+dx]*player < 0 {
-					moves = append(moves, Move{
-						fromX: x,
-						fromY: y,
-						toX:   x + dx,
-						toY:   y + dy,
-						key:   Map[y][x],
-						score: Shi[y+dy][x+dx],
-					})
-				}
 			}
 		}
 	}
@@ -514,32 +471,21 @@ func generateJiangMoves(x, y, player int) []Move {
 	directions := [][]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}
 
 	for _, dir := range directions {
-		dx, dy := dir[0], dir[1]
+		x2, y2 := x+dir[0], y+dir[1]
 
 		// 判断目标位置是否在九宫格内
-		if x+dx >= 3 && x+dx <= 5 && y+dy >= 0 && y+dy <= 2 || y+dy >= 7 && y+dy <= 9 {
-			// 判断目标位置是否为空
-			if Map[y+dy][x+dx] == 0 {
+		if x2 >= 3 && x2 <= 5 && y2 >= 7 && y2 <= 9 {
+			// 判断目标位置是否为敌方棋子
+			if Map[y2][x2]*player <= 0 {
 				moves = append(moves, Move{
 					fromX: x,
 					fromY: y,
-					toX:   x + dx,
-					toY:   y + dy,
+					toX:   x2,
+					toY:   y2,
 					key:   Map[y][x],
-					score: Jiang[y+dy][x+dx],
+					score: Jiang[y2][x2],
+					eat:   Map[y2][x2],
 				})
-			} else {
-				// 判断目标位置是否为敌方棋子
-				if Map[y+dy][x+dx]*player < 0 {
-					moves = append(moves, Move{
-						fromX: x,
-						fromY: y,
-						toX:   x + dx,
-						toY:   y + dy,
-						key:   Map[y][x],
-						score: Jiang[y+dy][x+dx],
-					})
-				}
 			}
 		}
 	}
@@ -548,16 +494,14 @@ func generateJiangMoves(x, y, player int) []Move {
 }
 
 func evaluate() int {
-	count++
 	score := 0
-	dead := 1
 
 	// 遍历棋盘上的每个位置
 	for j := 0; j < 10; j++ {
 		for i := 0; i < 9; i++ {
 			man := Map[j][i]
-			if man == -7 {
-				dead = 0
+			if man == 0 {
+				continue
 			}
 			player := 1
 			y := j
@@ -570,9 +514,9 @@ func evaluate() int {
 			case 1: // 兵
 				score += Bing[y][i] * player
 			case 2: // 炮
-				score += Pao[y][i] * player
+				score += (Pao[y][i] + 50) * player
 			case 3: // 车
-				score += Ju[y][i] * player
+				score += (Ju[y][i] + 100) * player
 			case 4: // 马
 				score += Ma[y][i] * player
 			case 5: // 象
@@ -585,25 +529,46 @@ func evaluate() int {
 		}
 	}
 
-	if dead == 1 {
-		score = 8888
-	}
-
 	// showLog("score", score)
-	return score + rand.Intn(10)
+	return score
 }
 
+// func boardToString() string {
+// 	boardBytes, _ := json.Marshal(Map)
+// 	return string(boardBytes)
+// }
+
+var pass = 0
+
 func alphaBeta(depth, alpha, beta, player int) int {
+
 	// 到达指定深度或游戏结束时，计算当前局面得分并返回
 	if depth == 0 {
-		return -evaluate()
+		count++
+		return -evaluate() - rand.Intn(10)
 	}
+
+	boardStr := ""
+	// if depth > 1 && depth < maxDepth {
+	// 	// 将局面转换为字符串表示
+	// 	boardStr = boardToString() + "@dp" + strconv.Itoa(depth*player)
+	// 	// 检查缓存中是否存在该局面的评估结果
+	// 	if score, ok := cache[boardStr]; ok {
+	// 		pass++
+	// 		// showLog("pass...", score, depth, pass)
+	// 		return score + rand.Intn(10)
+	// 	}
+	// }
 
 	// 根据当前玩家是最大化玩家还是最小化玩家来确定搜索的方向
 	if player == -1 { // 最大化玩家
 
+		tempMap := Map
+		Map = revMap()
 		// 生成当前玩家的所有合法移动
 		moves := generateMoves(player)
+		Map = tempMap
+
 		// if depth == maxDepth {
 		// 	arr := [][]int{}
 		// 	for _, m := range moves {
@@ -615,6 +580,8 @@ func alphaBeta(depth, alpha, beta, player int) int {
 
 		// 对每个合法移动进行搜索
 		for _, move := range moves {
+			move.fromY = 9 - move.fromY
+			move.toY = 9 - move.toY
 			// 执行移动操作
 			makeMove(&move)
 
@@ -629,9 +596,7 @@ func alphaBeta(depth, alpha, beta, player int) int {
 				// 如果当前深度是最大深度，保存最佳移动
 				// if depth == maxDepth && (rand.Intn(2) == 0 || len(aiMove.fromto) == 0) {
 				if depth == maxDepth {
-					aiMove.fromto = []int{move.fromY, move.fromX, move.toY, move.toX}
-					// str, _ := json.Marshal(aiMove.fromto)
-					// showLog("aiMove.fromto", string(str), score, "depth", depth)
+					aiMove = move
 					aiMove.score = score
 				}
 			}
@@ -656,6 +621,10 @@ func alphaBeta(depth, alpha, beta, player int) int {
 			}
 		}
 
+		if boardStr != "" {
+			cache[boardStr] = alpha
+		}
+
 		return alpha
 	} else { // 最小化玩家
 
@@ -671,22 +640,25 @@ func alphaBeta(depth, alpha, beta, player int) int {
 		// }
 		// 对每个合法移动进行搜索
 		for _, move := range moves {
-			// 执行移动操作
-			makeMove(&move)
-			if move.eat == -7 {
+			if Map[move.toY][move.toX] == -7 {
 				// str, _ := json.Marshal([]int{move.fromY, move.fromX, move.toY, move.toX})
 				// showLog("dead", string(str), depth)
-				undoMove(&move)
 				return -4444
 				// continue
 			}
-
+			// 执行移动操作
+			makeMove(&move)
 			// 调用alphaBeta函数进行搜索，并更新beta的值
 			score := alphaBeta(depth-1, alpha, beta, -player)
+			// if move.eat == -3 {
+			// 	score -= 200
+			// }
+			// if move.eat == -4 && move.eat == -2 {
+			// 	score -= 100
+			// }
 			if score < beta {
 				beta = score
 			}
-
 			// 撤销移动操作
 			undoMove(&move)
 
@@ -704,6 +676,10 @@ func alphaBeta(depth, alpha, beta, player int) int {
 			if alpha >= beta {
 				break
 			}
+		}
+
+		if boardStr != "" {
+			cache[boardStr] = beta
 		}
 
 		return beta
@@ -727,23 +703,18 @@ func makeMove(move *Move) {
 	}
 }
 func undoMove(move *Move) {
-	// 恢复移动前的棋子
-	// fromPiece := Map[move.fromY][move.fromX]
-	toPiece := Map[move.toY][move.toX]
-
 	// 恢复移动操作
-	Map[move.fromY][move.fromX] = toPiece
+	Map[move.fromY][move.fromX] = Map[move.toY][move.toX]
 	Map[move.toY][move.toX] = move.eat
-
-	// 如果有吃子操作，将目标位置的棋子恢复
-	// if move.eat != 0 {
-	// 	Map[move.toY][move.toX] = move.eat
-	// }
 }
 
 func showLog(s ...interface{}) {
 	js.Global().Get("console").Call("log", s...)
 }
+
+// func showInfo(s interface{}) {
+// 	js.Global().Set("paceinfo", s)
+// }
 
 func getMove(this js.Value, args []js.Value) interface{} {
 	if len(args) == 0 {
@@ -759,24 +730,33 @@ func getMove(this js.Value, args []js.Value) interface{} {
 			}
 		}
 	}
-	maxDepth = 4
+	maxDepth = 3
+	if len(args) == 2 {
+		maxDepth = int(args[1].Float())
+	}
 	count = 0
 	scores = []int{}
-	aiMove.fromto = []int{}
+	aiMove = Move{}
 	time0 := time.Now()
 	rand.Seed(time.Now().UnixNano())
 	alphaBeta(maxDepth, -99999, 99999, -1)
 	time1 := time.Since(time0).Milliseconds()
 	result := ""
-	for _, num := range aiMove.fromto {
-		result += strconv.Itoa(num)
+	for _, v := range []int{aiMove.fromY, aiMove.fromX, aiMove.toY, aiMove.toX} {
+		result += strconv.Itoa(v)
 	}
 	ss := ""
 	for _, s := range scores {
 		ss += strconv.Itoa(s) + ","
 	}
-	showLog("wasmkey", result, "score", aiMove.score, "\ncount", count, "time", time1, ss)
-	return result
+	showLog("wasmkey", result, "score", aiMove.score, "depth", maxDepth, "pass", pass, "\ncount", count, "time", time1, ss)
+	return map[string]interface{}{
+		"key":   result,
+		"score": aiMove.score,
+		"count": count,
+		"time":  time1,
+		"depth": maxDepth,
+	}
 }
 
 func main() {
