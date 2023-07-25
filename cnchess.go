@@ -11,6 +11,7 @@ import (
 var Map [][]int
 var maxDepth int
 var count int
+var bad []int
 
 type Move struct {
 	fromX int
@@ -533,10 +534,17 @@ func evaluate() int {
 	return score
 }
 
-// func boardToString() string {
-// 	boardBytes, _ := json.Marshal(Map)
-// 	return string(boardBytes)
-// }
+func boardToString() string {
+	// boardBytes, _ := json.Marshal(Map)
+	// return string(boardBytes)
+	str := ""
+	for j := 0; j < 10; j++ {
+		for i := 0; i < 9; i++ {
+			str += strconv.Itoa(Map[j][i]) + ","
+		}
+	}
+	return str
+}
 
 var pass = 0
 
@@ -548,8 +556,8 @@ func alphaBeta(depth, alpha, beta, player int) int {
 		return -evaluate() - rand.Intn(10)
 	}
 
-	boardStr := ""
-	// if depth > 1 && depth < maxDepth {
+	// boardStr := ""
+	// if maxDepth > 4 && depth > 1 && depth < maxDepth {
 	// 	// 将局面转换为字符串表示
 	// 	boardStr = boardToString() + "@dp" + strconv.Itoa(depth*player)
 	// 	// 检查缓存中是否存在该局面的评估结果
@@ -579,9 +587,17 @@ func alphaBeta(depth, alpha, beta, player int) int {
 		// }
 
 		// 对每个合法移动进行搜索
-		for _, move := range moves {
+		for index, move := range moves {
+			if maxDepth > 4 && depth < maxDepth-1 && index&1 == 0 {
+				continue
+			}
 			move.fromY = 9 - move.fromY
 			move.toY = 9 - move.toY
+			if depth == maxDepth && len(bad) == 4 {
+				if bad[1] == move.fromX && bad[0] == move.fromY && bad[3] == move.toX && bad[2] == move.toY {
+					continue
+				}
+			}
 			// 执行移动操作
 			makeMove(&move)
 
@@ -621,9 +637,9 @@ func alphaBeta(depth, alpha, beta, player int) int {
 			}
 		}
 
-		if boardStr != "" {
-			cache[boardStr] = alpha
-		}
+		// if boardStr != "" {
+		// 	cache[boardStr] = alpha
+		// }
 
 		return alpha
 	} else { // 最小化玩家
@@ -678,9 +694,9 @@ func alphaBeta(depth, alpha, beta, player int) int {
 			}
 		}
 
-		if boardStr != "" {
-			cache[boardStr] = beta
-		}
+		// if boardStr != "" {
+		// 	cache[boardStr] = beta
+		// }
 
 		return beta
 	}
@@ -716,6 +732,76 @@ func showLog(s ...interface{}) {
 // 	js.Global().Set("paceinfo", s)
 // }
 
+func getMoves(this js.Value, args []js.Value) interface{} {
+	if len(args) < 3 {
+		return nil
+	}
+
+	m := args[0].String()
+	if m != "" {
+		arr := strings.Split(m, ";")
+		for i, v := range arr {
+			a := strings.Split(v, ",")
+			for ii, vv := range a {
+				Map[i][ii], _ = strconv.Atoi(vv)
+			}
+		}
+	}
+	i := int(args[1].Float())
+	j := int(args[2].Float())
+
+	var moves []Move
+	var tempMap [][]int
+	man := Map[j][i]
+	player := 1
+
+	// 判断当前位置是否是当前玩家的棋子
+	if man < 0 {
+		tempMap = Map
+		Map = revMap()
+		player = -1
+		j = 9 - j
+	}
+
+	// 生成当前位置的所有可能移动
+	switch abs(man) {
+	case 1: // 兵
+		moves = generateBingMoves(i, j, player)
+	case 2: // 炮
+		moves = generatePaoMoves(i, j, player)
+	case 3: // 车
+		moves = generateJuMoves(i, j, player)
+	case 4: // 马
+		moves = generateMaMoves(i, j, player)
+	case 5: // 象
+		moves = generateXiangMoves(i, j, player)
+	case 6: // 士
+		moves = generateShiMoves(i, j, player)
+	case 7: // 将
+		moves = generateJiangMoves(i, j, player)
+	}
+
+	if man < 0 {
+		Map = tempMap
+	}
+
+	var movestr = ""
+
+	for _, m := range moves {
+		if man < 0 {
+			m.toY = 9 - m.toY
+		}
+		movestr += strconv.Itoa(m.toX) + strconv.Itoa(m.toY) + ","
+	}
+
+	showLog("getmoves", movestr)
+
+	return map[string]interface{}{
+		"moves": movestr,
+		"key":   man,
+	}
+}
+
 func getMove(this js.Value, args []js.Value) interface{} {
 	if len(args) == 0 {
 		return nil
@@ -733,6 +819,17 @@ func getMove(this js.Value, args []js.Value) interface{} {
 	maxDepth = 3
 	if len(args) == 2 {
 		maxDepth = int(args[1].Float())
+	}
+	// bad = []int{9, 9, 9, 9}
+	if len(args) == 3 {
+		b := args[2].String()
+		if len(b) == 4 {
+			bad = []int{99, 99, 99, 99}
+			for i, s := range b {
+				bad[i], _ = strconv.Atoi(string(s))
+			}
+			showLog("go.bad", b)
+		}
 	}
 	count = 0
 	scores = []int{}
@@ -762,5 +859,6 @@ func getMove(this js.Value, args []js.Value) interface{} {
 func main() {
 	InitBoard()
 	js.Global().Set("getmove", js.FuncOf(getMove))
+	js.Global().Set("getmoves", js.FuncOf(getMoves))
 	select {}
 }
